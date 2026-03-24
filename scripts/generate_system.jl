@@ -1,7 +1,10 @@
 using PowerSystems
 using PowerSystemCaseBuilder
+using Random
+using TimeSeries
+Random.seed!(1234)
 
-sys = System("raw_data/Escenarios/Original/ieee9_v32.raw")
+sys = System("raw_data/scenarios/Original/ieee9_v32.raw")
 rts_sys = build_system(PSISystems, "modified_RTS_GMLC_DA_sys_noForecast"; force_build = true)
 
 function update_operation_cost!(sys, rts_sys)
@@ -123,3 +126,54 @@ end
 add_storage!(sys)
 to_json(sys, "saved_systems/ieee9_sienna_with_storage.json"; force=true)
 
+function add_shiftable_load!(sys)
+    load = get_component(StandardLoad, sys, "load51")
+    shiftable_load = ShiftablePowerLoad(;
+        name = "shiftable_load",
+        available = true,
+        bus = get_bus(load),
+        active_power = get_max_active_power(load),
+        active_power_limits = (min = 0.0, max = get_max_active_power(load)),
+        reactive_power = get_constant_reactive_power(load),
+        max_active_power = get_max_active_power(load),
+        max_reactive_power = get_max_constant_reactive_power(load),
+        base_power = get_base_power(load),
+        load_balance_time_horizon = 1, # not used yet
+        operation_cost = LoadCost(;
+            variable = CostCurve(
+                LinearCurve(0.0), # No cost for shifting up
+                UnitSystem.NATURAL_UNITS,
+                LinearCurve(5.0) # Only cost for shifting down
+            ),
+            fixed = 0.0,
+        ),
+    )
+    add_component!(sys, shiftable_load)
+    set_available!(load, false)
+    copy_time_series!(shiftable_load, load)
+
+    tstamps =
+        TimeSeries.timestamp(get_time_series_array(SingleTimeSeries, shiftable_load, "max_active_power"))
+    up_vals = 0.1 * ones(length(tstamps)) # Only 10% of the load can be shifted up at each time step
+    down_vals = 0.2 * rand(length(tstamps)) # Up to 50% of the load can be shifted down at each time step randomly
+    up_array = TimeArray(tstamps, up_vals)
+    down_array = TimeArray(tstamps, down_vals)
+    up_ts = SingleTimeSeries(
+        "shift_up_max_active_power",
+        up_array;
+        scaling_factor_multiplier = get_max_active_power,
+    )
+    down_ts = SingleTimeSeries(
+        "shift_down_max_active_power",
+        down_array;
+        scaling_factor_multiplier = get_max_active_power,
+    )
+    add_time_series!(sys, shiftable_load, up_ts)
+    add_time_series!(sys, shiftable_load, down_ts)
+end
+
+sys_shiftable = System("saved_systems/ieee9_sienna_with_renewable.json")
+set_units_base_system!(sys_shiftable, "DEVICE_BASE")
+add_shiftable_load!(sys_shiftable)
+set_units_base_system!(sys_shiftable, "NATURAL_UNITS")
+to_json(sys_shiftable, "saved_systems/ieee9_sienna_with_renewable_and_shiftable_load.json"; force=true)
