@@ -4,6 +4,7 @@ using PowerSimulations
 using Dates
 using HiGHS
 using PlotlyJS
+const PSI = PowerSimulations
 
 sys = System("saved_systems/ieee9_sienna_with_renewable.json")
 transform_single_time_series!(sys, Hour(24), Hour(24))
@@ -12,10 +13,10 @@ th_max_power = sum(get_max_active_power.(get_components(ThermalStandard, sys)))
 
 solver = optimizer_with_attributes(HiGHS.Optimizer)
 template = ProblemTemplate(CopperPlatePowerModel)
-set_device_model!(template, StandardLoad, StaticPowerLoad)
-set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
-set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
-#set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+PSI.set_device_model!(template, StandardLoad, StaticPowerLoad)
+PSI.set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+PSI.set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+#PSI.set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
 
 models = SimulationModels(;
     decision_models = [
@@ -30,7 +31,7 @@ sequence = SimulationSequence(;
     feedforwards = feedforward,
 )
 
-sim = Simulation(;
+sim = PSI.Simulation(;
     name = "ieee9-test",
     steps = 365,
     models = models,
@@ -39,14 +40,14 @@ sim = Simulation(;
     #initial_time = DateTime("2020-07-01T00:00:00"),
 )
 
-build!(sim)
-execute!(sim; enable_progress_bar = true)
-results = SimulationResults(sim);
+PSI.build!(sim)
+PSI.execute!(sim; enable_progress_bar = true)
+results = PSI.SimulationResults(sim);
 uc_results = get_decision_problem_results(results, "UC")
-p_th = read_realized_variable(uc_results, "ActivePowerVariable__ThermalStandard")
-p_load = read_realized_parameter(uc_results, "ActivePowerTimeSeriesParameter__StandardLoad")
-p_re = read_realized_variable(uc_results, "ActivePowerVariable__RenewableDispatch")
-cost_th = read_realized_expression(uc_results, "ProductionCostExpression__ThermalStandard")
+p_th = read_realized_variable(uc_results, "ActivePowerVariable__ThermalStandard"; table_format = TableFormat.WIDE)
+p_load = read_realized_parameter(uc_results, "ActivePowerTimeSeriesParameter__StandardLoad"; table_format = TableFormat.WIDE)
+p_re = read_realized_variable(uc_results, "ActivePowerVariable__RenewableDispatch"; table_format = TableFormat.WIDE)
+cost_th = read_realized_expression(uc_results, "ProductionCostExpression__ThermalStandard"; table_format = TableFormat.WIDE)
 total_cost = sum(cost_th[!, "generator-3-1"]) + sum(cost_th[!, "generator-2-1"])
 
 tstamp = p_th[!, 1]

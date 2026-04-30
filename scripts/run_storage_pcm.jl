@@ -5,6 +5,7 @@ using StorageSystemsSimulations
 using Dates
 using HiGHS
 using PlotlyJS
+const PSI = PowerSimulations
 
 sys = System("saved_systems/ieee9_sienna_with_storage.json")
 transform_single_time_series!(sys, Hour(72), Hour(24))
@@ -13,10 +14,10 @@ th_max_power = sum(get_max_active_power.(get_components(ThermalStandard, sys)))
 
 solver = optimizer_with_attributes(HiGHS.Optimizer)
 template = ProblemTemplate(CopperPlatePowerModel)
-set_device_model!(template, StandardLoad, StaticPowerLoad)
-set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
-set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
-set_device_model!(template, EnergyReservoirStorage, StorageDispatchWithReserves)
+PSI.set_device_model!(template, StandardLoad, StaticPowerLoad)
+PSI.set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+PSI.set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+PSI.set_device_model!(template, EnergyReservoirStorage, StorageDispatchWithReserves)
 #set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
 
 models = SimulationModels(;
@@ -32,7 +33,7 @@ sequence = SimulationSequence(;
     feedforwards = feedforward,
 )
 
-sim = Simulation(;
+sim = PSI.Simulation(;
     name = "ieee9-test",
     steps = 360,
     models = models,
@@ -42,17 +43,17 @@ sim = Simulation(;
 )
 
 build!(sim)
-execute!(sim; enable_progress_bar = true)
-results = SimulationResults(sim);
+PSI.execute!(sim; enable_progress_bar = true)
+results = PSI.SimulationResults(sim);
 uc_results = get_decision_problem_results(results, "UC")
-p_th = read_realized_variable(uc_results, "ActivePowerVariable__ThermalStandard")
-p_load = read_realized_parameter(uc_results, "ActivePowerTimeSeriesParameter__StandardLoad")
-p_re = read_realized_variable(uc_results, "ActivePowerVariable__RenewableDispatch")
-p_bat_out = read_realized_variable(uc_results, "ActivePowerOutVariable__EnergyReservoirStorage")
-p_bat_in = read_realized_variable(uc_results, "ActivePowerInVariable__EnergyReservoirStorage")
+p_th = read_realized_variable(uc_results, "ActivePowerVariable__ThermalStandard"; table_format = TableFormat.WIDE)
+p_load = read_realized_parameter(uc_results, "ActivePowerTimeSeriesParameter__StandardLoad"; table_format = TableFormat.WIDE)
+p_re = read_realized_variable(uc_results, "ActivePowerVariable__RenewableDispatch"; table_format = TableFormat.WIDE)
+p_bat_out = read_realized_variable(uc_results, "ActivePowerOutVariable__EnergyReservoirStorage"; table_format = TableFormat.WIDE)
+p_bat_in = read_realized_variable(uc_results, "ActivePowerInVariable__EnergyReservoirStorage"; table_format = TableFormat.WIDE)
 p_bat = p_bat_out[!, "Storage_Bus_1"] .- p_bat_in[!, "Storage_Bus_1"]
-soc = read_realized_variable(uc_results, "EnergyVariable__EnergyReservoirStorage")[!, "Storage_Bus_1"]
-cost_th = read_realized_expression(uc_results, "ProductionCostExpression__ThermalStandard")
+soc = read_realized_variable(uc_results, "EnergyVariable__EnergyReservoirStorage"; table_format = TableFormat.WIDE)[!, "Storage_Bus_1"]
+cost_th = read_realized_expression(uc_results, "ProductionCostExpression__ThermalStandard"; table_format = TableFormat.WIDE)
 total_cost = sum(cost_th[!, "generator-3-1"]) + sum(cost_th[!, "generator-2-1"])
 
 tstamp = p_th[!, 1]

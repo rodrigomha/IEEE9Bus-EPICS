@@ -9,9 +9,7 @@ using PowerFlows
 using Sundials
 using PlotlyJS
 using PowerNetworkMatrices
-using SparseArrays
 using PowerSystemCaseBuilder
-using OrdinaryDiffEq
 const PSY = PowerSystems
 const PSID = PowerSimulationsDynamics
 const PF = PowerFlows
@@ -21,7 +19,7 @@ const PF = PowerFlows
 ######################
 
 #raw_path = "raw_data/Escenarios/RTS_Esc487MW.raw"
-raw_path = "raw_data/Escenarios/RTS_Esc625MW.raw"
+raw_path = "raw_data/scenarios/RTS_Esc625MW.raw"
 dyr_path = "raw_data/RTS_CtrlsModified_STAB1.dyr"
 sys = System(raw_path, dyr_path)
 for l in get_components(StandardLoad, sys)
@@ -41,9 +39,9 @@ perturbation_change = ControlReferenceChange(10.0, gen, :P_ref, 0.7)
 gen1 = get_component(DynamicInjection, sys, "generator-1-1")
 perturbation_gen = GeneratorTrip(10.0, gen1)
 
-sim = Simulation(
+sim = PSID.Simulation(
     #ResidualModel, # Type of formulation: Residual for using Sundials with IDA
-    MassMatrixModel,
+    ResidualModel,
     sys, # System
     mktempdir(), # Output directory
     time_span,
@@ -54,7 +52,7 @@ sim = Simulation(
 
 show_states_initial_value(sim)
 
-execute!(sim, Rodas5(), dtmax = 0.02, abstol = 1e-6, reltol = 1e-6)
+PSID.execute!(sim, IDA(), dtmax = 0.02, abstol = 1e-4, reltol = 1e-4)
 
 results = read_results(sim)
 t, v = get_voltage_magnitude_series(results, 7)

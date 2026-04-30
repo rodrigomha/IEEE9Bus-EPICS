@@ -22,11 +22,11 @@ const PF = PowerFlows
 ### Data Exploring ###
 ######################
 
-raw_path = "raw_data/Escenarios/RTS_Esc487MW.raw"
+raw_path = "raw_data/scenarios/RTS_Esc487MW.raw"
 dyr_path = "raw_data/RTS_CtrlsModified_RE.dyr"
 sys = System(raw_path, dyr_path)
 
-pf = solve_powerflow(ACPowerFlow(), sys)
+pf = solve_power_flow(ACPowerFlow(), sys)
 
 for l in get_components(StandardLoad, sys)
     transform_load_to_constant_impedance(l)
@@ -40,7 +40,7 @@ end
 time_span = (0.0, 20.0)
 perturbation_trip = BranchTrip(0.5, Line, "BUS5-BUS7-i_1")
 
-sim = Simulation(
+sim = PSID.Simulation(
     ResidualModel, # Type of formulation: Residual for using Sundials with IDA
     sys, # System
     mktempdir(), # Output directory
@@ -53,7 +53,7 @@ sim = Simulation(
 
 show_states_initial_value(sim)
 
-execute!(sim, IDA(), dtmax = 0.02, abstol = 1e-6, reltol = 1e-6)
+PSID.execute!(sim, IDA(), dtmax = 0.02, abstol = 1e-4, reltol = 1e-4)
 
 results = read_results(sim)
 
