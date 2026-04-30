@@ -26,7 +26,6 @@ using PlotlyJS
 using PowerNetworkMatrices
 using SparseArrays
 using PowerSystemCaseBuilder
-using OrdinaryDiffEq
 using CSV
 using DataFrames
 const PSY = PowerSystems
