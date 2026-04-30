@@ -1,3 +1,25 @@
+# =============================================================================
+# run_storage_pcm.jl
+#
+# Runs a year-long Production Cost Model (PCM) with battery energy storage
+# added to the renewable (PV + Wind + Gas) system.
+#
+# Network model: CopperPlatePowerModel (no transmission constraints).
+# Device models:
+#   - ThermalDispatchNoMin   : CT and CC gas units
+#   - RenewableFullDispatch  : PV and Wind
+#   - StorageDispatchWithReserves : Battery with ancillary service reserves
+#
+# The simulation horizon uses 72-hour look-ahead windows (stepped 24 hours)
+# so the optimizer can plan multi-day charge/discharge cycles.
+#
+# Output:
+#   - Dispatch plot: PV, Wind, CT, CC, Battery net power, and total load
+#   - State-of-charge (SoC) plot for the battery over the year
+#
+# Prerequisite: run generate_system.jl to create ieee9_sienna_with_storage.json
+# =============================================================================
+
 using PowerSystems
 using PowerSystemCaseBuilder
 using PowerSimulations
@@ -5,18 +27,21 @@ using StorageSystemsSimulations
 using Dates
 using HiGHS
 using PlotlyJS
+const PSI = PowerSimulations
 
 sys = System("saved_systems/ieee9_sienna_with_storage.json")
+# 72-hour horizon allows multi-day charge/discharge planning; advance 24 h each step
 transform_single_time_series!(sys, Hour(72), Hour(24))
 p_flow_load = sum(get_max_active_power.(get_components(StandardLoad, sys))) 
 th_max_power = sum(get_max_active_power.(get_components(ThermalStandard, sys)))
 
 solver = optimizer_with_attributes(HiGHS.Optimizer)
 template = ProblemTemplate(CopperPlatePowerModel)
-set_device_model!(template, StandardLoad, StaticPowerLoad)
-set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
-set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
-set_device_model!(template, EnergyReservoirStorage, StorageDispatchWithReserves)
+PSI.set_device_model!(template, StandardLoad, StaticPowerLoad)
+PSI.set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+PSI.set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+# StorageDispatchWithReserves: co-optimizes energy arbitrage and reserve provision
+PSI.set_device_model!(template, EnergyReservoirStorage, StorageDispatchWithReserves)
 #set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
 
 models = SimulationModels(;
@@ -32,7 +57,7 @@ sequence = SimulationSequence(;
     feedforwards = feedforward,
 )
 
-sim = Simulation(;
+sim = PSI.Simulation(;
     name = "ieee9-test",
     steps = 360,
     models = models,
@@ -42,17 +67,18 @@ sim = Simulation(;
 )
 
 build!(sim)
-execute!(sim; enable_progress_bar = true)
-results = SimulationResults(sim);
+PSI.execute!(sim; enable_progress_bar = true)
+results = PSI.SimulationResults(sim);
 uc_results = get_decision_problem_results(results, "UC")
-p_th = read_realized_variable(uc_results, "ActivePowerVariable__ThermalStandard")
-p_load = read_realized_parameter(uc_results, "ActivePowerTimeSeriesParameter__StandardLoad")
-p_re = read_realized_variable(uc_results, "ActivePowerVariable__RenewableDispatch")
-p_bat_out = read_realized_variable(uc_results, "ActivePowerOutVariable__EnergyReservoirStorage")
-p_bat_in = read_realized_variable(uc_results, "ActivePowerInVariable__EnergyReservoirStorage")
+p_th = read_realized_variable(uc_results, "ActivePowerVariable__ThermalStandard"; table_format = TableFormat.WIDE)
+p_load = read_realized_parameter(uc_results, "ActivePowerTimeSeriesParameter__StandardLoad"; table_format = TableFormat.WIDE)
+p_re = read_realized_variable(uc_results, "ActivePowerVariable__RenewableDispatch"; table_format = TableFormat.WIDE)
+p_bat_out = read_realized_variable(uc_results, "ActivePowerOutVariable__EnergyReservoirStorage"; table_format = TableFormat.WIDE)
+p_bat_in = read_realized_variable(uc_results, "ActivePowerInVariable__EnergyReservoirStorage"; table_format = TableFormat.WIDE)
+# Net battery power: positive = discharging (injecting), negative = charging
 p_bat = p_bat_out[!, "Storage_Bus_1"] .- p_bat_in[!, "Storage_Bus_1"]
-soc = read_realized_variable(uc_results, "EnergyVariable__EnergyReservoirStorage")[!, "Storage_Bus_1"]
-cost_th = read_realized_expression(uc_results, "ProductionCostExpression__ThermalStandard")
+soc = read_realized_variable(uc_results, "EnergyVariable__EnergyReservoirStorage"; table_format = TableFormat.WIDE)[!, "Storage_Bus_1"]
+cost_th = read_realized_expression(uc_results, "ProductionCostExpression__ThermalStandard"; table_format = TableFormat.WIDE)
 total_cost = sum(cost_th[!, "generator-3-1"]) + sum(cost_th[!, "generator-2-1"])
 
 tstamp = p_th[!, 1]

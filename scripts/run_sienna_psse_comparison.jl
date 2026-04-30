@@ -1,3 +1,22 @@
+# =============================================================================
+# run_sienna_psse_comparison.jl
+#
+# Validates the PowerSimulationsDynamics (Sienna) dynamic model against
+# PSS/E reference results for the IEEE 9-bus non-renewable-energy (NRE) case.
+#
+# Perturbation: trip of line BUS5-BUS7 at t = 1 s (20-second simulation).
+#
+# Workflow:
+#   1. Build the Sienna system from .raw + .dyr files.
+#   2. Run the dynamic simulation and extract voltage and speed time series.
+#   3. Load the matching PSS/E CSV results from psspy-scripts/results/.
+#   4. Overlay both on the same PlotlyJS plots for visual comparison.
+#
+# Output:
+#   - Overlay plot of bus voltage magnitudes (all 9 buses)
+#   - Overlay plot of generator speeds (GEN1, GEN2, GEN3)
+# =============================================================================
+
 using Pkg
 Pkg.activate(".")
 Pkg.instantiate()
@@ -11,7 +30,6 @@ using PlotlyJS
 using PowerNetworkMatrices
 using SparseArrays
 using PowerSystemCaseBuilder
-using OrdinaryDiffEq
 using CSV
 using DataFrames
 const PSY = PowerSystems
@@ -26,8 +44,9 @@ raw_path = "raw_data/scenarios/RTS_Esc487MW.raw"
 dyr_path = "raw_data/RTS_CtrlsModified_STAB1.dyr"
 sys = System(raw_path, dyr_path)
 
-pf = solve_powerflow(ACPowerFlow(), sys)
+pf = solve_power_flow(ACPowerFlow(), sys)  # confirm steady-state before perturbing
 
+# Constant-impedance loads improve solver convergence and match PSSE load modeling
 for l in get_components(StandardLoad, sys)
     transform_load_to_constant_impedance(l)
 end
@@ -40,7 +59,9 @@ end
 time_span = (0.0, 20.0)
 perturbation_trip = BranchTrip(1.0, Line, "BUS5-BUS7-i_1")
 
-sim = Simulation(
+# ConstantFrequency reference: frequency is held fixed externally (infinite bus assumption)
+# saveat = 0.01 s matches the PSS/E output resolution for a clean comparison
+sim = PSID.Simulation(
     ResidualModel, # Type of formulation: Residual for using Sundials with IDA
     sys, # System
     mktempdir(), # Output directory
@@ -53,7 +74,7 @@ sim = Simulation(
 
 show_states_initial_value(sim)
 
-execute!(sim, IDA(), dtmax = 0.02, abstol = 1e-6, reltol = 1e-6, saveat = 0.01)
+PSID.execute!(sim, IDA(),  abstol = 1e-4, reltol = 1e-4, saveat = 0.01)
 
 results = read_results(sim)
 
@@ -65,6 +86,7 @@ speed_sienna_plots_line_trip = [
 ];
 
 #### PSSE Plotting ####
+# Read PSS/E CSV exports produced by the psspy-scripts/main.py workflow
 voltage_mag_df_line_trip = CSV.read("psspy-scripts/results/line_trip_5-7/case_NRE/case_NRE_line_fault_All_20s_VOLT.csv", DataFrame)
 speed_df_line_trip = CSV.read("psspy-scripts/results/line_trip_5-7/case_NRE/case_NRE_line_fault_All_20s_SPEED.csv", DataFrame)
 
@@ -99,51 +121,5 @@ plot(vcat(speed_psse_plots_line_trip, speed_sienna_plots_line_trip),
         title="Generator Speed after Line 5-7 Trip",
         xaxis_title="Time (s)",
         yaxis_title="Speed (p.u.)",
-    ),
-)
-
-
-####################################
-### Simulation Setup: Gen Change ###
-####################################
-
-
-time_span = (0.0, 20.0)
-gen = get_component(DynamicGenerator, sys, "generator-2-1")
-perturbation_change = ControlReferenceChange(0.5, gen, :P_ref, 0.764) # Trying to figure out why this number works
-
-
-sim = Simulation(
-    ResidualModel, # Type of formulation: Residual for using Sundials with IDA
-    sys, # System
-    mktempdir(), # Output directory
-    time_span,
-    perturbation_change;
-    frequency_reference = ConstantFrequency(),
-)
-
-show_states_initial_value(sim)
-
-execute!(sim, IDA(), dtmax = 0.02, abstol = 1e-6, reltol = 1e-6, saveat = 0.02)
-
-results = read_results(sim)
-
-gen2_base_power = get_component(StaticInjection, sys, "generator-2-1").base_power
-t_sienna, p_gen2_sienna = get_activepower_series(results, "generator-2-1")
-_, ω_gen2_sienna = get_state_series(results, ("generator-2-1", :ω))
-
-
-speed_df_gen_change = CSV.read("PSSE_comparison_case/SPEED_Evt_GEN2_power.csv", DataFrame)
-voltage_mag_df_gen_change = CSV.read("PSSE_comparison_case/UMAG_Evt_GEN2_power.csv", DataFrame)
-power_df_gen_change = CSV.read("PSSE_comparison_case/POWER_Evt_GEN2_power.csv", DataFrame)
-
-
-plot([scatter(x = power_df_gen_change[:, "TIME"], y = power_df_gen_change[:, "GEN_BUS2"], name = "PSSE: GEN2", line = attr(color = "red")),
-    scatter(x = t_sienna, y = p_gen2_sienna .* 100.0, name = "Sienna: GEN2", line = attr(color = "black", dash = "dot")),
-    ],
-    Layout(
-        title="Generator Active Power after reference change",
-        xaxis_title="Time (s)",
-        yaxis_title="Active Power (MW)",
     ),
 )
