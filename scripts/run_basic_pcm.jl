@@ -1,3 +1,19 @@
+# =============================================================================
+# run_basic_pcm.jl
+#
+# Runs a basic Production Cost Model (PCM) for the IEEE 9-bus thermal-only
+# system over a full year (365 daily horizon steps).
+#
+# Network model: CopperPlatePowerModel — no transmission constraints, all
+# generators share a single bus. This is the simplest PCM formulation and
+# is a good starting point before adding network or unit-commitment detail.
+#
+# Generator formulation: ThermalDispatchNoMin — continuous dispatch without
+# minimum-output constraints (no on/off binary decisions).
+#
+# Prerequisite: run generate_system.jl to create ieee9_sienna.json
+# =============================================================================
+
 using PowerSystems
 using PowerSystemCaseBuilder
 using PowerSimulations
@@ -6,11 +22,14 @@ using HiGHS
 using PlotlyJS
 const PSI = PowerSimulations
 sys = System("saved_systems/ieee9_sienna.json")
+# Chunk the year-long time series into 24-hour decision windows with a 24-hour step
 transform_single_time_series!(sys, Hour(24), Hour(24))
 p_flow_load = sum(get_max_active_power.(get_components(StandardLoad, sys))) 
 th_max_power = sum(get_max_active_power.(get_components(ThermalStandard, sys)))
 
+# Use HiGHS as the open-source LP/MIP solver
 solver = optimizer_with_attributes(HiGHS.Optimizer)
+# CopperPlatePowerModel ignores branch flow limits — good for a first comparison
 template = ProblemTemplate(CopperPlatePowerModel)
 set_device_model!(template, StandardLoad, StaticPowerLoad)
 set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)

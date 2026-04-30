@@ -1,3 +1,25 @@
+# =============================================================================
+# run_storage_pcm.jl
+#
+# Runs a year-long Production Cost Model (PCM) with battery energy storage
+# added to the renewable (PV + Wind + Gas) system.
+#
+# Network model: CopperPlatePowerModel (no transmission constraints).
+# Device models:
+#   - ThermalDispatchNoMin   : CT and CC gas units
+#   - RenewableFullDispatch  : PV and Wind
+#   - StorageDispatchWithReserves : Battery with ancillary service reserves
+#
+# The simulation horizon uses 72-hour look-ahead windows (stepped 24 hours)
+# so the optimizer can plan multi-day charge/discharge cycles.
+#
+# Output:
+#   - Dispatch plot: PV, Wind, CT, CC, Battery net power, and total load
+#   - State-of-charge (SoC) plot for the battery over the year
+#
+# Prerequisite: run generate_system.jl to create ieee9_sienna_with_storage.json
+# =============================================================================
+
 using PowerSystems
 using PowerSystemCaseBuilder
 using PowerSimulations
@@ -8,6 +30,7 @@ using PlotlyJS
 const PSI = PowerSimulations
 
 sys = System("saved_systems/ieee9_sienna_with_storage.json")
+# 72-hour horizon allows multi-day charge/discharge planning; advance 24 h each step
 transform_single_time_series!(sys, Hour(72), Hour(24))
 p_flow_load = sum(get_max_active_power.(get_components(StandardLoad, sys))) 
 th_max_power = sum(get_max_active_power.(get_components(ThermalStandard, sys)))
@@ -17,6 +40,7 @@ template = ProblemTemplate(CopperPlatePowerModel)
 PSI.set_device_model!(template, StandardLoad, StaticPowerLoad)
 PSI.set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
 PSI.set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+# StorageDispatchWithReserves: co-optimizes energy arbitrage and reserve provision
 PSI.set_device_model!(template, EnergyReservoirStorage, StorageDispatchWithReserves)
 #set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
 
@@ -51,6 +75,7 @@ p_load = read_realized_parameter(uc_results, "ActivePowerTimeSeriesParameter__St
 p_re = read_realized_variable(uc_results, "ActivePowerVariable__RenewableDispatch"; table_format = TableFormat.WIDE)
 p_bat_out = read_realized_variable(uc_results, "ActivePowerOutVariable__EnergyReservoirStorage"; table_format = TableFormat.WIDE)
 p_bat_in = read_realized_variable(uc_results, "ActivePowerInVariable__EnergyReservoirStorage"; table_format = TableFormat.WIDE)
+# Net battery power: positive = discharging (injecting), negative = charging
 p_bat = p_bat_out[!, "Storage_Bus_1"] .- p_bat_in[!, "Storage_Bus_1"]
 soc = read_realized_variable(uc_results, "EnergyVariable__EnergyReservoirStorage"; table_format = TableFormat.WIDE)[!, "Storage_Bus_1"]
 cost_th = read_realized_expression(uc_results, "ProductionCostExpression__ThermalStandard"; table_format = TableFormat.WIDE)

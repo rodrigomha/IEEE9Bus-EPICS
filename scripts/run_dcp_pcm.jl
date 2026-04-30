@@ -1,3 +1,20 @@
+# =============================================================================
+# run_dcp_pcm.jl
+#
+# Runs a Production Cost Model (PCM) with a DC Power Flow network
+# (DCPPowerModel) for the IEEE 9-bus system over 30 days in July.
+#
+# Unlike the copper-plate model, DCPPowerModel enforces transmission line
+# flow limits using a linearized (lossless) DC approximation. This allows
+# the optimizer to respect congestion and compute locational prices.
+#
+# Generator formulation: ThermalDispatchNoMin (continuous, no min-output)
+# Network elements: Lines and 2-winding transformers are included as
+#                   StaticBranch (DC flow, no losses).
+#
+# Prerequisite: run generate_system.jl to create ieee9_sienna.json
+# =============================================================================
+
 using PowerSystems
 using PowerSystemCaseBuilder
 using PowerSimulations
@@ -11,9 +28,11 @@ transform_single_time_series!(sys, Hour(24), Hour(24))
 p_flow_load = sum(get_max_active_power.(get_components(StandardLoad, sys))) * 100.0
 
 solver = optimizer_with_attributes(HiGHS.Optimizer)
+# DCPPowerModel: linearized DC power flow, respects line thermal limits
 template = ProblemTemplate(DCPPowerModel)
 PSI.set_device_model!(template, StandardLoad, StaticPowerLoad)
 PSI.set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+# Include network branches so line limits are enforced
 PSI.set_device_model!(template, Line, StaticBranch)
 PSI.set_device_model!(template, Transformer2W, StaticBranch)
 

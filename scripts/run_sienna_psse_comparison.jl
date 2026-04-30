@@ -1,3 +1,22 @@
+# =============================================================================
+# run_sienna_psse_comparison.jl
+#
+# Validates the PowerSimulationsDynamics (Sienna) dynamic model against
+# PSS/E reference results for the IEEE 9-bus non-renewable-energy (NRE) case.
+#
+# Perturbation: trip of line BUS5-BUS7 at t = 1 s (20-second simulation).
+#
+# Workflow:
+#   1. Build the Sienna system from .raw + .dyr files.
+#   2. Run the dynamic simulation and extract voltage and speed time series.
+#   3. Load the matching PSS/E CSV results from psspy-scripts/results/.
+#   4. Overlay both on the same PlotlyJS plots for visual comparison.
+#
+# Output:
+#   - Overlay plot of bus voltage magnitudes (all 9 buses)
+#   - Overlay plot of generator speeds (GEN1, GEN2, GEN3)
+# =============================================================================
+
 using Pkg
 Pkg.activate(".")
 Pkg.instantiate()
@@ -25,8 +44,9 @@ raw_path = "raw_data/scenarios/RTS_Esc487MW.raw"
 dyr_path = "raw_data/RTS_CtrlsModified_STAB1.dyr"
 sys = System(raw_path, dyr_path)
 
-pf = solve_power_flow(ACPowerFlow(), sys)
+pf = solve_power_flow(ACPowerFlow(), sys)  # confirm steady-state before perturbing
 
+# Constant-impedance loads improve solver convergence and match PSSE load modeling
 for l in get_components(StandardLoad, sys)
     transform_load_to_constant_impedance(l)
 end
@@ -39,6 +59,8 @@ end
 time_span = (0.0, 20.0)
 perturbation_trip = BranchTrip(1.0, Line, "BUS5-BUS7-i_1")
 
+# ConstantFrequency reference: frequency is held fixed externally (infinite bus assumption)
+# saveat = 0.01 s matches the PSS/E output resolution for a clean comparison
 sim = PSID.Simulation(
     ResidualModel, # Type of formulation: Residual for using Sundials with IDA
     sys, # System
@@ -64,6 +86,7 @@ speed_sienna_plots_line_trip = [
 ];
 
 #### PSSE Plotting ####
+# Read PSS/E CSV exports produced by the psspy-scripts/main.py workflow
 voltage_mag_df_line_trip = CSV.read("psspy-scripts/results/line_trip_5-7/case_NRE/case_NRE_line_fault_All_20s_VOLT.csv", DataFrame)
 speed_df_line_trip = CSV.read("psspy-scripts/results/line_trip_5-7/case_NRE/case_NRE_line_fault_All_20s_SPEED.csv", DataFrame)
 

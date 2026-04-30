@@ -1,3 +1,24 @@
+# =============================================================================
+# run_renewable_pcm.jl
+#
+# Runs a year-long Production Cost Model (PCM) for the IEEE 9-bus system with
+# renewable generation (PV + Wind) replacing the coal plant at Bus 1.
+#
+# Network model: CopperPlatePowerModel (no transmission constraints).
+# Generator formulations:
+#   - ThermalDispatchNoMin  : CT and CC gas units (continuous dispatch)
+#   - RenewableFullDispatch : PV and Wind (can curtail down to zero)
+#
+# After the simulation the script identifies four "critical" hours used as
+# representative operating conditions for dynamic studies:
+#   - Minimum thermal output (highest renewable penetration)
+#   - Minimum load demand (off-peak)
+#   - Maximum load demand (peak)
+#   - Maximum thermal output / maximum net load
+#
+# Prerequisite: run generate_system.jl to create ieee9_sienna_with_renewable.json
+# =============================================================================
+
 using PowerSystems
 using PowerSystemCaseBuilder
 using PowerSimulations
@@ -15,6 +36,7 @@ solver = optimizer_with_attributes(HiGHS.Optimizer)
 template = ProblemTemplate(CopperPlatePowerModel)
 PSI.set_device_model!(template, StandardLoad, StaticPowerLoad)
 PSI.set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+# RenewableFullDispatch: the optimizer can dispatch renewables anywhere between 0 and their available output
 PSI.set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
 #PSI.set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
 
@@ -105,7 +127,7 @@ plot([
 
 ### Find Critical Days ###
 
-# Find hour with lowest thermal generation > 0: Min Inertia #
+# ----- Minimum thermal output (highest renewable penetration, lowest inertia) -----
 p_th_sum = p_gen2 + p_gen3
 low_thermal_ixs = sortperm(p_th_sum)
 p_th_sum_sorted = p_th_sum[low_thermal_ixs]
@@ -119,7 +141,7 @@ load_low_thermal = total_p_load[ix_low_thermal]
 wind_low_thermal = p_gen_wind[ix_low_thermal]
 pv_low_thermal = p_gen_pv[ix_low_thermal]
 
-# Find hour with lowest demand #
+# ----- Minimum load demand (off-peak, overnight) -----
 p_load_sum = p_load5 + p_load6 + p_load8
 low_demand_ixs = sortperm(p_load_sum)
 p_load_sum_sorted = p_load_sum[low_demand_ixs]
@@ -132,7 +154,7 @@ load_low_demand = total_p_load[ix_low_demand]
 wind_low_demand = p_gen_wind[ix_low_demand]
 pv_low_demand = p_gen_pv[ix_low_demand]
 
-# Find hour with max demand #
+# ----- Maximum load demand (peak hour) -----
 high_demand_ixs = sortperm(p_load_sum)
 p_load_sum_sorted = p_load_sum[high_demand_ixs]
 first_sorted_high_demand = length(p_load_sum_sorted)
@@ -144,7 +166,7 @@ load_high_demand = p_load_sum[ix_high_demand]
 wind_high_demand = p_gen_wind[ix_high_demand]
 pv_high_demand = p_gen_pv[ix_high_demand]
 
-# Find hour with max thermal: (Check if Max Net Load) #
+# ----- Maximum thermal output (thermal-heavy, potential stability constraint) -----
 high_thermal_ixs = sortperm(p_th_sum)
 p_th_sum_sorted = p_th_sum[high_thermal_ixs]
 first_sorted_high_thermal = length(p_th_sum_sorted)
@@ -158,7 +180,8 @@ load_high_thermal = total_p_load[ix_high_thermal]
 wind_high_thermal = p_gen_wind[ix_high_thermal]
 pv_high_thermal = p_gen_pv[ix_high_thermal]
 
-# Add script for max-net-load
+# Net load = total demand minus variable renewable output.
+# The hour with maximum net load is typically the hardest hour for dispatchable resources.
 p_net_load = total_p_load - p_gen_wind - p_gen_pv
 max_net_load_ix = argmax(p_net_load)
 tstamp_max_net_load = tstamp[max_net_load_ix]

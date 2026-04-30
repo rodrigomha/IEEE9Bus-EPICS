@@ -1,3 +1,18 @@
+# =============================================================================
+# run_sienna_renewable.jl
+#
+# Runs a dynamic (time-domain) simulation on the IEEE 9-bus system with
+# renewable energy (RE) generator controls using PowerSimulationsDynamics.
+#
+# The RE variant uses RTS_CtrlsModified_RE.dyr which replaces the classical
+# synchronous machine models with grid-following inverter-based resource (IBR)
+# models, representing a higher renewable penetration scenario.
+#
+# Perturbation: trip of line BUS5-BUS7 at t = 0.5 s (20-second simulation).
+#
+# Output: PlotlyJS plot of all 9 bus voltage magnitudes vs. time.
+# =============================================================================
+
 using Pkg
 Pkg.activate(".")
 Pkg.instantiate()
@@ -23,10 +38,11 @@ const PF = PowerFlows
 ######################
 
 raw_path = "raw_data/scenarios/RTS_Esc487MW.raw"
+# RE .dyr file uses inverter-based resource (IBR) dynamic models
 dyr_path = "raw_data/RTS_CtrlsModified_RE.dyr"
 sys = System(raw_path, dyr_path)
 
-pf = solve_power_flow(ACPowerFlow(), sys)
+pf = solve_power_flow(ACPowerFlow(), sys)  # verify steady-state before simulation
 
 for l in get_components(StandardLoad, sys)
     transform_load_to_constant_impedance(l)

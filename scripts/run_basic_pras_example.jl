@@ -1,3 +1,19 @@
+# =============================================================================
+# run_basic_pras_example.jl
+#
+# Demonstrates probabilistic reliability assessment using PRAS
+# (Probabilistic Reliability Assessment of Systems) via SiennaPRASInterface.
+#
+# The script:
+#   1. Converts the Sienna PowerSystems system to a PRAS system object.
+#   2. Runs a Sequential Monte Carlo (SMC) simulation to estimate Shortfall.
+#   3. Computes Expected Unserved Energy (EUE) as a reliability index.
+#   4. Shows how to split a large generator into N smaller units to study
+#      the effect of generator size on reliability (N-1 risk).
+#
+# Prerequisite: run generate_system.jl to create ieee9_sienna_with_renewable.json
+# =============================================================================
+
 using PRAS
 using PowerSystems
 using SiennaPRASInterface
@@ -7,13 +23,16 @@ const PSY = PowerSystems
 
 sys = System("saved_systems/ieee9_sienna_with_renewable.json")
 show_components(ACBus, sys, [:area])
+# Convert the Sienna system to a PRAS system grouped by Area
 pras_sys = SPI.generate_pras_system(sys, Area)
+# Run 100 Monte Carlo samples; fix seed for reproducibility
 sf = assess(sys,Area,SequentialMonteCarlo(samples=100,seed=1),Shortfall())
+# EUE (Expected Unserved Energy) is a common reliability metric in MWh/year
 neue = EUE(sf[1])
 
-# Attempt to make a system with 1 NEUE, add demand response, add additional thermal or storage,
-# First split generators in 3.
-
+# Splitting a large unit into N smaller ones changes the forced-outage
+# characteristics and increases the number of independent failure events,
+# which typically improves reliability metrics.
 function split_unit_into_N_units!(sys, plant_name, N = 3)
     plant = get_component(ThermalStandard, sys, plant_name)
     for i in 1:N
@@ -42,6 +61,7 @@ function split_unit_into_N_units!(sys, plant_name, N = 3)
 end
 
 #split_unit_into_N_units!(sys, "generator-2-1", 2)
+# Split generator-3-1 (CC gas) into 3 equal units and re-run reliability assessment
 split_unit_into_N_units!(sys, "generator-3-1", 3)
 
 pras_sys = SPI.generate_pras_system(sys, Area)
